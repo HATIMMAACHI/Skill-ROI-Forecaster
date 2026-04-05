@@ -3,6 +3,7 @@ import joblib
 import matplotlib.pyplot as plt
 import matplotlib
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 # ── PAGE CONFIG
 st.set_page_config(
@@ -247,21 +248,48 @@ def load_models():
     feature_columns = joblib.load('feature_columns.pkl')
     return model_rf, rules, roi_df, feature_columns
 
+
+@st.cache_resource
+def load_kmeans_assets():
+    kmeans = joblib.load('kmeans_model.pkl')
+
+    df_train = pd.read_csv('dataset_encode.csv').drop_duplicates()
+    df_num = df_train.select_dtypes(include=['number', 'bool']).copy()
+
+    for col in df_num.columns:
+        if df_num[col].dtype == bool:
+            df_num[col] = df_num[col].astype(int)
+
+    if 'cluster' in df_num.columns:
+        df_num = df_num.drop(columns=['cluster'])
+
+    scaler = StandardScaler()
+    scaler.fit(df_num)
+
+    return kmeans, scaler, df_num.columns.tolist()
+
 model_rf, rules, roi_df, feature_columns = load_models()
+kmeans_model, kmeans_scaler, kmeans_feature_columns = load_kmeans_assets()
 feature_columns = list(getattr(model_rf, 'feature_names_in_', feature_columns))
 skills_cols = roi_df['skill'].tolist()
+job_category_columns = [col for col in feature_columns if col.startswith('job_category_')]
+job_category_labels = {
+    col: col.replace('job_category_', '').replace('_', ' ').title() for col in job_category_columns
+}
 
 niveau_map = {'Junior': 2, 'Mid Level': 4, 'Lead': 3, 'Senior': 5}
 
 
-def detect_job_category_column(columns):
-    if 'job_category_software engineer' in columns:
-        return 'job_category_software engineer'
+def detect_job_category_column(columns, selected_job_col=None):
     job_cols = [col for col in columns if col.startswith('job_category_')]
+    if selected_job_col and selected_job_col in job_cols:
+        return selected_job_col
+    if 'job_category_software engineer' in job_cols:
+        return 'job_category_software engineer'
     return job_cols[0] if job_cols else None
 
 
-def build_model_input(columns, selected_skills, seniority_value, salary_value=None):
+def build_model_input(columns, selected_skills, seniority_value, salary_value=None, selected_job_col=None):
     input_df = pd.DataFrame([[0] * len(columns)], columns=columns)
     for skill in selected_skills:
         if skill in columns:
@@ -270,7 +298,7 @@ def build_model_input(columns, selected_skills, seniority_value, salary_value=No
     if 'seniority_encoded' in columns:
         input_df['seniority_encoded'] = seniority_value
 
-    job_col = detect_job_category_column(columns)
+    job_col = detect_job_category_column(columns, selected_job_col)
     if job_col:
         input_df[job_col] = 1
 
@@ -318,6 +346,18 @@ with col_center:
         index=0
     )
 
+    default_job_col = 'job_category_software engineer' if 'job_category_software engineer' in job_category_columns else (job_category_columns[0] if job_category_columns else None)
+    selected_job_col = default_job_col
+    if job_category_columns:
+        ordered_job_cols = sorted(job_category_columns, key=lambda c: job_category_labels[c])
+        default_index = ordered_job_cols.index(default_job_col) if default_job_col in ordered_job_cols else 0
+        selected_job_col = st.selectbox(
+            '🧩 Job category',
+            options=ordered_job_cols,
+            index=default_index,
+            format_func=lambda c: job_category_labels[c]
+        )
+
     top_n = st.slider('Number of recommendations', 3, 10, 5)
 
     analyser = st.button('✦ Analyse My Profile')
@@ -340,7 +380,7 @@ if analyser and mes_skills:
     </div>
     """, unsafe_allow_html=True)
 
-    input_data = build_model_input(feature_columns, mes_skills, niveau_map[niveau])
+    input_data = build_model_input(feature_columns, mes_skills, niveau_map[niveau], selected_job_col=selected_job_col)
     salaire_predit = model_rf.predict(input_data)[0]
 
     st.markdown(f"""
@@ -355,7 +395,7 @@ if analyser and mes_skills:
     niveaux = ['Junior', 'Mid Level', 'Lead', 'Senior']
     salaires_par_niveau = []
     for niv in niveaux:
-        inp = build_model_input(feature_columns, mes_skills, niveau_map[niv])
+        inp = build_model_input(feature_columns, mes_skills, niveau_map[niv], selected_job_col=selected_job_col)
         sal = model_rf.predict(inp)[0]
         salaires_par_niveau.append(sal)
 
@@ -457,8 +497,6 @@ if analyser and mes_skills:
     </div>
     """, unsafe_allow_html=True)
 
-    kmeans = joblib.load('kmeans_model.pkl')
-
     cluster_names = {
         0: ('🔬 Data Scientist', '$126,191', 'Orienté machine learning · Séniorité élevée'),
         1: ('💻 Software Engineer', '$273,558', 'Généraliste · Python, Java, C++'),
@@ -466,10 +504,20 @@ if analyser and mes_skills:
         3: ('🌐 Frontend Developer', '$277,456', 'JavaScript, React, HTML, CSS · Salaire le plus élevé'),
     }
 
-    kmeans_cols = list(getattr(kmeans, 'feature_names_in_', feature_columns + ['salary']))
-    input_kmeans = build_model_input(kmeans_cols, mes_skills, niveau_map[niveau], salaire_predit)
+    input_kmeans = build_model_input(
+        kmeans_feature_columns,
+        mes_skills,
+        niveau_map[niveau],
+        salaire_predit,
+        selected_job_col=selected_job_col
+    )
 
-    cluster = kmeans.predict(input_kmeans)[0]
+    try:
+        input_kmeans_scaled = kmeans_scaler.transform(input_kmeans)
+        cluster = kmeans_model.predict(input_kmeans_scaled)[0]
+    except Exception:
+        # Fallback to raw input if scaling fails unexpectedly.
+        cluster = kmeans_model.predict(input_kmeans)[0]
     nom, salaire_cluster, desc = cluster_names.get(cluster, (f'Cluster {cluster}', 'N/A', ''))
 
     st.markdown(f"""
