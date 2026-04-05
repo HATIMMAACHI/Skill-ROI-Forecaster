@@ -1,9 +1,12 @@
 import streamlit as st
 import joblib
+import importlib
 import matplotlib.pyplot as plt
 import matplotlib
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
 
 # ── PAGE CONFIG
 st.set_page_config(
@@ -268,6 +271,64 @@ def load_kmeans_assets():
 
     return kmeans, scaler, df_num.columns.tolist()
 
+
+@st.cache_resource
+def load_job_category_predictor(all_feature_columns, skills):
+    df_train = pd.read_csv('dataset_encode.csv').drop_duplicates()
+
+    job_cols = [col for col in all_feature_columns if col.startswith('job_category_') and col in df_train.columns]
+    skill_cols = [col for col in skills if col in df_train.columns]
+    predictor_cols = skill_cols + (['seniority_encoded'] if 'seniority_encoded' in df_train.columns else [])
+
+    valid_rows = df_train[job_cols].sum(axis=1) > 0
+    df_model = df_train.loc[valid_rows, predictor_cols + job_cols].copy()
+
+    X = df_model[predictor_cols].astype(float)
+    y = df_model[job_cols].idxmax(axis=1)
+
+    # Controlled undersampling to reduce class dominance.
+    class_counts = y.value_counts()
+    min_count = int(class_counts.min())
+    max_per_class = min(int(class_counts.max()), max(400, min_count * 8))
+
+    sampled_idx = []
+    for label, indices in y.groupby(y).groups.items():
+        take_n = min(len(indices), max_per_class)
+        sampled_idx.extend(pd.Index(indices).to_series().sample(n=take_n, random_state=42).tolist())
+
+    X_bal = X.loc[sampled_idx].copy()
+    y_bal = y.loc[sampled_idx].copy()
+
+    # Optional SMOTE if imbalanced-learn is available in the environment.
+    try:
+        smote_module = importlib.import_module('imblearn.over_sampling')
+        SMOTE = getattr(smote_module, 'SMOTE')
+
+        min_after_under = int(y_bal.value_counts().min())
+        if min_after_under >= 2:
+            smote = SMOTE(random_state=42, k_neighbors=min(5, min_after_under - 1))
+            X_bal, y_bal = smote.fit_resample(X_bal, y_bal)
+    except Exception:
+        pass
+
+    base_clf = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        class_weight='balanced_subsample'
+    )
+
+    # Calibrate probabilities when fold count is feasible for every class.
+    min_class_support = int(pd.Series(y_bal).value_counts().min())
+    if min_class_support >= 2:
+        cv_folds = 3 if min_class_support >= 3 else 2
+        clf = CalibratedClassifierCV(base_clf, method='sigmoid', cv=cv_folds)
+    else:
+        clf = base_clf
+
+    clf.fit(X_bal, y_bal)
+
+    return clf, predictor_cols, job_cols
+
 model_rf, rules, roi_df, feature_columns = load_models()
 kmeans_model, kmeans_scaler, kmeans_feature_columns = load_kmeans_assets()
 feature_columns = list(getattr(model_rf, 'feature_names_in_', feature_columns))
@@ -276,6 +337,7 @@ job_category_columns = [col for col in feature_columns if col.startswith('job_ca
 job_category_labels = {
     col: col.replace('job_category_', '').replace('_', ' ').title() for col in job_category_columns
 }
+job_category_model, job_category_predictor_cols, job_category_target_cols = load_job_category_predictor(feature_columns, skills_cols)
 
 niveau_map = {'Junior': 2, 'Mid Level': 4, 'Lead': 3, 'Senior': 5}
 
@@ -346,18 +408,6 @@ with col_center:
         index=0
     )
 
-    default_job_col = 'job_category_software engineer' if 'job_category_software engineer' in job_category_columns else (job_category_columns[0] if job_category_columns else None)
-    selected_job_col = default_job_col
-    if job_category_columns:
-        ordered_job_cols = sorted(job_category_columns, key=lambda c: job_category_labels[c])
-        default_index = ordered_job_cols.index(default_job_col) if default_job_col in ordered_job_cols else 0
-        selected_job_col = st.selectbox(
-            '🧩 Job category',
-            options=ordered_job_cols,
-            index=default_index,
-            format_func=lambda c: job_category_labels[c]
-        )
-
     top_n = st.slider('Number of recommendations', 3, 10, 5)
 
     analyser = st.button('✦ Analyse My Profile')
@@ -366,6 +416,29 @@ with col_center:
 # RESULTS — apparaissent APRÈS le clic
 # ══════════════════════════════════════
 if analyser and mes_skills:
+
+    # ── PRÉDICTION DE LA CATÉGORIE MÉTIER
+    input_job = pd.DataFrame([[0] * len(job_category_predictor_cols)], columns=job_category_predictor_cols)
+    for skill in mes_skills:
+        if skill in input_job.columns:
+            input_job[skill] = 1
+    if 'seniority_encoded' in input_job.columns:
+        input_job['seniority_encoded'] = niveau_map[niveau]
+
+    selected_job_col = job_category_model.predict(input_job)[0]
+    proba = job_category_model.predict_proba(input_job)[0]
+    predicted_confidence = float(max(proba))
+    predicted_job_label = job_category_labels.get(selected_job_col, selected_job_col.replace('job_category_', '').replace('_', ' ').title())
+
+    st.markdown(f"""
+    <div style="text-align:center; margin-bottom: 18px;">
+        <span style="font-size:11px; letter-spacing:3px; text-transform:uppercase; color:#888;">Predicted Job Category</span>
+        <br>
+        <span style="font-family:'Cormorant Garamond',serif; font-size:34px; font-weight:700; color:#c9a84c;">{predicted_job_label}</span>
+        <br>
+        <span style="font-size:12px; color:#777; letter-spacing:1px;">Confidence: {predicted_confidence:.0%}</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
