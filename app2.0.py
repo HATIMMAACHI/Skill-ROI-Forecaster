@@ -248,9 +248,36 @@ def load_models():
     return model_rf, rules, roi_df, feature_columns
 
 model_rf, rules, roi_df, feature_columns = load_models()
+feature_columns = list(getattr(model_rf, 'feature_names_in_', feature_columns))
 skills_cols = roi_df['skill'].tolist()
 
 niveau_map = {'Junior': 2, 'Mid Level': 4, 'Lead': 3, 'Senior': 5}
+
+
+def detect_job_category_column(columns):
+    if 'job_category_software engineer' in columns:
+        return 'job_category_software engineer'
+    job_cols = [col for col in columns if col.startswith('job_category_')]
+    return job_cols[0] if job_cols else None
+
+
+def build_model_input(columns, selected_skills, seniority_value, salary_value=None):
+    input_df = pd.DataFrame([[0] * len(columns)], columns=columns)
+    for skill in selected_skills:
+        if skill in columns:
+            input_df[skill] = 1
+
+    if 'seniority_encoded' in columns:
+        input_df['seniority_encoded'] = seniority_value
+
+    job_col = detect_job_category_column(columns)
+    if job_col:
+        input_df[job_col] = 1
+
+    if salary_value is not None and 'salary' in columns:
+        input_df['salary'] = salary_value
+
+    return input_df
 
 # ══════════════════════════════════════
 # HERO
@@ -313,12 +340,7 @@ if analyser and mes_skills:
     </div>
     """, unsafe_allow_html=True)
 
-    input_data = pd.DataFrame([[0] * len(feature_columns)], columns=feature_columns)
-    for skill in mes_skills:
-        if skill in feature_columns:
-            input_data[skill] = 1
-    input_data['seniority_encoded'] = niveau_map[niveau]
-    input_data['job_category_software engineer'] = 1
+    input_data = build_model_input(feature_columns, mes_skills, niveau_map[niveau])
     salaire_predit = model_rf.predict(input_data)[0]
 
     st.markdown(f"""
@@ -333,12 +355,7 @@ if analyser and mes_skills:
     niveaux = ['Junior', 'Mid Level', 'Lead', 'Senior']
     salaires_par_niveau = []
     for niv in niveaux:
-        inp = pd.DataFrame([[0] * len(feature_columns)], columns=feature_columns)
-        for skill in mes_skills:
-            if skill in feature_columns:
-                inp[skill] = 1
-        inp['seniority_encoded'] = niveau_map[niv]
-        inp['job_category_software engineer'] = 1
+        inp = build_model_input(feature_columns, mes_skills, niveau_map[niv])
         sal = model_rf.predict(inp)[0]
         salaires_par_niveau.append(sal)
 
@@ -449,14 +466,8 @@ if analyser and mes_skills:
         3: ('🌐 Frontend Developer', '$277,456', 'JavaScript, React, HTML, CSS · Salaire le plus élevé'),
     }
 
-    kmeans_cols = feature_columns + ['salary']
-    input_kmeans = pd.DataFrame([[0] * len(kmeans_cols)], columns=kmeans_cols)
-    for skill in mes_skills:
-        if skill in kmeans_cols:
-            input_kmeans[skill] = 1
-    input_kmeans['seniority_encoded'] = niveau_map[niveau]
-    input_kmeans['job_category_software engineer'] = 1
-    input_kmeans['salary'] = salaire_predit
+    kmeans_cols = list(getattr(kmeans, 'feature_names_in_', feature_columns + ['salary']))
+    input_kmeans = build_model_input(kmeans_cols, mes_skills, niveau_map[niveau], salaire_predit)
 
     cluster = kmeans.predict(input_kmeans)[0]
     nom, salaire_cluster, desc = cluster_names.get(cluster, (f'Cluster {cluster}', 'N/A', ''))
