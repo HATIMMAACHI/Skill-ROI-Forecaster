@@ -1,12 +1,9 @@
 import streamlit as st
 import joblib
-import importlib
 import matplotlib.pyplot as plt
 import matplotlib
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
 
 # ── PAGE CONFIG
 st.set_page_config(
@@ -221,16 +218,12 @@ span[data-baseweb="tag"]:hover svg {
     border-color: #c9a84c !important;
     box-shadow: 0 0 0 4px rgba(201,168,76,0.2) !important;
 }
-/* Valeur affichée (chiffre) */
 .stSlider p, .stSlider span {
     color: #c9a84c !important;
 }
-/* Barre remplie — Streamlit l'injecte en inline blue, on la réoriente avec hue-rotate */
-/* blue (#1c83e1) → gold via hue-rotate(38deg) + ajustements */
 .stSlider > div > div > div > div:nth-child(2) {
     filter: hue-rotate(38deg) saturate(2.5) brightness(0.95) !important;
 }
-/* Fallback: tenter override direct sur tous les divs de la track */
 [data-testid="stSlider"] div[style*="background"] {
     background-color: #c9a84c !important;
 }
@@ -272,86 +265,15 @@ def load_kmeans_assets():
     return kmeans, scaler, df_num.columns.tolist()
 
 
-@st.cache_resource
-def load_job_category_predictor(all_feature_columns, skills):
-    df_train = pd.read_csv('dataset_encode.csv').drop_duplicates()
-
-    job_cols = [col for col in all_feature_columns if col.startswith('job_category_') and col in df_train.columns]
-    skill_cols = [col for col in skills if col in df_train.columns]
-    predictor_cols = skill_cols + (['seniority_encoded'] if 'seniority_encoded' in df_train.columns else [])
-
-    valid_rows = df_train[job_cols].sum(axis=1) > 0
-    df_model = df_train.loc[valid_rows, predictor_cols + job_cols].copy()
-
-    X = df_model[predictor_cols].astype(float)
-    y = df_model[job_cols].idxmax(axis=1)
-
-    # Controlled undersampling to reduce class dominance.
-    class_counts = y.value_counts()
-    min_count = int(class_counts.min())
-    max_per_class = min(int(class_counts.max()), max(400, min_count * 8))
-
-    sampled_idx = []
-    for label, indices in y.groupby(y).groups.items():
-        take_n = min(len(indices), max_per_class)
-        sampled_idx.extend(pd.Index(indices).to_series().sample(n=take_n, random_state=42).tolist())
-
-    X_bal = X.loc[sampled_idx].copy()
-    y_bal = y.loc[sampled_idx].copy()
-
-    # Optional SMOTE if imbalanced-learn is available in the environment.
-    try:
-        smote_module = importlib.import_module('imblearn.over_sampling')
-        SMOTE = getattr(smote_module, 'SMOTE')
-
-        min_after_under = int(y_bal.value_counts().min())
-        if min_after_under >= 2:
-            smote = SMOTE(random_state=42, k_neighbors=min(5, min_after_under - 1))
-            X_bal, y_bal = smote.fit_resample(X_bal, y_bal)
-    except Exception:
-        pass
-
-    base_clf = RandomForestClassifier(
-        n_estimators=300,
-        random_state=42,
-        class_weight='balanced_subsample'
-    )
-
-    # Calibrate probabilities when fold count is feasible for every class.
-    min_class_support = int(pd.Series(y_bal).value_counts().min())
-    if min_class_support >= 2:
-        cv_folds = 3 if min_class_support >= 3 else 2
-        clf = CalibratedClassifierCV(base_clf, method='sigmoid', cv=cv_folds)
-    else:
-        clf = base_clf
-
-    clf.fit(X_bal, y_bal)
-
-    return clf, predictor_cols, job_cols
-
 model_rf, rules, roi_df, feature_columns = load_models()
 kmeans_model, kmeans_scaler, kmeans_feature_columns = load_kmeans_assets()
 feature_columns = list(getattr(model_rf, 'feature_names_in_', feature_columns))
 skills_cols = roi_df['skill'].tolist()
-job_category_columns = [col for col in feature_columns if col.startswith('job_category_')]
-job_category_labels = {
-    col: col.replace('job_category_', '').replace('_', ' ').title() for col in job_category_columns
-}
-job_category_model, job_category_predictor_cols, job_category_target_cols = load_job_category_predictor(feature_columns, skills_cols)
 
 niveau_map = {'Junior': 2, 'Mid Level': 4, 'Lead': 3, 'Senior': 5}
 
 
-def detect_job_category_column(columns, selected_job_col=None):
-    job_cols = [col for col in columns if col.startswith('job_category_')]
-    if selected_job_col and selected_job_col in job_cols:
-        return selected_job_col
-    if 'job_category_software engineer' in job_cols:
-        return 'job_category_software engineer'
-    return job_cols[0] if job_cols else None
-
-
-def build_model_input(columns, selected_skills, seniority_value, salary_value=None, selected_job_col=None):
+def build_model_input(columns, selected_skills, seniority_value, salary_value=None):
     input_df = pd.DataFrame([[0] * len(columns)], columns=columns)
     for skill in selected_skills:
         if skill in columns:
@@ -360,14 +282,11 @@ def build_model_input(columns, selected_skills, seniority_value, salary_value=No
     if 'seniority_encoded' in columns:
         input_df['seniority_encoded'] = seniority_value
 
-    job_col = detect_job_category_column(columns, selected_job_col)
-    if job_col:
-        input_df[job_col] = 1
-
     if salary_value is not None and 'salary' in columns:
         input_df['salary'] = salary_value
 
     return input_df
+
 
 # ══════════════════════════════════════
 # HERO
@@ -413,34 +332,9 @@ with col_center:
     analyser = st.button('✦ Analyse My Profile')
 
 # ══════════════════════════════════════
-# RESULTS — apparaissent APRÈS le clic
+# RESULTS
 # ══════════════════════════════════════
 if analyser and mes_skills:
-
-    # ── PRÉDICTION DE LA CATÉGORIE MÉTIER
-    input_job = pd.DataFrame([[0] * len(job_category_predictor_cols)], columns=job_category_predictor_cols)
-    for skill in mes_skills:
-        if skill in input_job.columns:
-            input_job[skill] = 1
-    if 'seniority_encoded' in input_job.columns:
-        input_job['seniority_encoded'] = niveau_map[niveau]
-
-    selected_job_col = job_category_model.predict(input_job)[0]
-    proba = job_category_model.predict_proba(input_job)[0]
-    predicted_confidence = float(max(proba))
-    predicted_job_label = job_category_labels.get(selected_job_col, selected_job_col.replace('job_category_', '').replace('_', ' ').title())
-
-    st.markdown(f"""
-    <div style="text-align:center; margin-bottom: 18px;">
-        <span style="font-size:11px; letter-spacing:3px; text-transform:uppercase; color:#888;">Predicted Job Category</span>
-        <br>
-        <span style="font-family:'Cormorant Garamond',serif; font-size:34px; font-weight:700; color:#c9a84c;">{predicted_job_label}</span>
-        <br>
-        <span style="font-size:12px; color:#777; letter-spacing:1px;">Confidence: {predicted_confidence:.0%}</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
     # ── SALAIRE ESTIMÉ
     st.markdown("""
@@ -453,7 +347,7 @@ if analyser and mes_skills:
     </div>
     """, unsafe_allow_html=True)
 
-    input_data = build_model_input(feature_columns, mes_skills, niveau_map[niveau], selected_job_col=selected_job_col)
+    input_data = build_model_input(feature_columns, mes_skills, niveau_map[niveau])
     salaire_predit = model_rf.predict(input_data)[0]
 
     st.markdown(f"""
@@ -468,7 +362,7 @@ if analyser and mes_skills:
     niveaux = ['Junior', 'Mid Level', 'Lead', 'Senior']
     salaires_par_niveau = []
     for niv in niveaux:
-        inp = build_model_input(feature_columns, mes_skills, niveau_map[niv], selected_job_col=selected_job_col)
+        inp = build_model_input(feature_columns, mes_skills, niveau_map[niv])
         sal = model_rf.predict(inp)[0]
         salaires_par_niveau.append(sal)
 
@@ -581,16 +475,15 @@ if analyser and mes_skills:
         kmeans_feature_columns,
         mes_skills,
         niveau_map[niveau],
-        salaire_predit,
-        selected_job_col=selected_job_col
+        salaire_predit
     )
 
     try:
         input_kmeans_scaled = kmeans_scaler.transform(input_kmeans)
         cluster = kmeans_model.predict(input_kmeans_scaled)[0]
     except Exception:
-        # Fallback to raw input if scaling fails unexpectedly.
         cluster = kmeans_model.predict(input_kmeans)[0]
+
     nom, salaire_cluster, desc = cluster_names.get(cluster, (f'Cluster {cluster}', 'N/A', ''))
 
     st.markdown(f"""
