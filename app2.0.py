@@ -417,7 +417,31 @@ with col_center:
 # ══════════════════════════════════════
 if analyser and mes_skills:
 
-   
+    # ── PRÉDICTION DE LA CATÉGORIE MÉTIER
+    input_job = pd.DataFrame([[0] * len(job_category_predictor_cols)], columns=job_category_predictor_cols)
+    for skill in mes_skills:
+        if skill in input_job.columns:
+            input_job[skill] = 1
+    if 'seniority_encoded' in input_job.columns:
+        input_job['seniority_encoded'] = niveau_map[niveau]
+
+    selected_job_col = job_category_model.predict(input_job)[0]
+    proba = job_category_model.predict_proba(input_job)[0]
+    predicted_confidence = float(max(proba))
+    predicted_job_label = job_category_labels.get(selected_job_col, selected_job_col.replace('job_category_', '').replace('_', ' ').title())
+
+    st.markdown(f"""
+    <div style="text-align:center; margin-bottom: 18px;">
+        <span style="font-size:11px; letter-spacing:3px; text-transform:uppercase; color:#888;">Predicted Job Category</span>
+        <br>
+        <span style="font-family:'Cormorant Garamond',serif; font-size:34px; font-weight:700; color:#c9a84c;">{predicted_job_label}</span>
+        <br>
+        <span style="font-size:12px; color:#777; letter-spacing:1px;">Confidence: {predicted_confidence:.0%}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
     # ── SALAIRE ESTIMÉ
     st.markdown("""
     <div style="text-align:center; margin-bottom: 8px;">
