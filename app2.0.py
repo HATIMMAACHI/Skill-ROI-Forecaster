@@ -1,4 +1,3 @@
-import streamlit as st
 import joblib
 import importlib
 import matplotlib.pyplot as plt
@@ -272,6 +271,62 @@ def load_kmeans_assets():
     return kmeans, scaler, df_num.columns.tolist()
 
 
+@st.cache_resource
+def load_job_category_predictor(all_feature_columns, skills):
+    df_train = pd.read_csv('dataset_encode.csv').drop_duplicates()
+
+    job_cols = [col for col in all_feature_columns if col.startswith('job_category_') and col in df_train.columns]
+    skill_cols = [col for col in skills if col in df_train.columns]
+    predictor_cols = skill_cols + (['seniority_encoded'] if 'seniority_encoded' in df_train.columns else [])
+
+    valid_rows = df_train[job_cols].sum(axis=1) > 0
+    df_model = df_train.loc[valid_rows, predictor_cols + job_cols].copy()
+
+    X = df_model[predictor_cols].astype(float)
+    y = df_model[job_cols].idxmax(axis=1)
+
+    # Controlled undersampling to reduce class dominance.
+    class_counts = y.value_counts()
+    min_count = int(class_counts.min())
+    max_per_class = min(int(class_counts.max()), max(400, min_count * 8))
+
+    sampled_idx = []
+    for label, indices in y.groupby(y).groups.items():
+        take_n = min(len(indices), max_per_class)
+        sampled_idx.extend(pd.Index(indices).to_series().sample(n=take_n, random_state=42).tolist())
+
+    X_bal = X.loc[sampled_idx].copy()
+    y_bal = y.loc[sampled_idx].copy()
+
+    # Optional SMOTE if imbalanced-learn is available in the environment.
+    try:
+        smote_module = importlib.import_module('imblearn.over_sampling')
+        SMOTE = getattr(smote_module, 'SMOTE')
+
+        min_after_under = int(y_bal.value_counts().min())
+        if min_after_under >= 2:
+            smote = SMOTE(random_state=42, k_neighbors=min(5, min_after_under - 1))
+            X_bal, y_bal = smote.fit_resample(X_bal, y_bal)
+    except Exception:
+        pass
+
+    base_clf = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        class_weight='balanced_subsample'
+    )
+
+    # Calibrate probabilities when fold count is feasible for every class.
+    min_class_support = int(pd.Series(y_bal).value_counts().min())
+    if min_class_support >= 2:
+        cv_folds = 3 if min_class_support >= 3 else 2
+        clf = CalibratedClassifierCV(base_clf, method='sigmoid', cv=cv_folds)
+    else:
+        clf = base_clf
+
+    clf.fit(X_bal, y_bal)
+
+    return clf, predictor_cols, job_cols
 
 model_rf, rules, roi_df, feature_columns = load_models()
 kmeans_model, kmeans_scaler, kmeans_feature_columns = load_kmeans_assets()
