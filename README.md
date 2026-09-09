@@ -1,43 +1,59 @@
-# 🤖 Developer Digital Twin (RAG Agent)
+---
 
-A specialized conversational AI assistant built using a Retrieval-Augmented Generation (RAG) architecture. This system acts as a "digital twin," capable of answering queries based on highly specific, custom-injected context and documents.
+### 2. Skill ROI Forecaster (`README.md`)
 
-Built with a decoupled architecture featuring a FastAPI backend for LLM orchestration and a React frontend for an interactive chat interface.
+```markdown
+# 📈 Skill ROI Forecaster
+
+An end-to-end machine learning system that analyzes, predicts, and ranks the market return on investment (ROI) of technical skills across modern tech industries. 
+
+Deployed as an interactive analytical dashboard via Streamlit Community Cloud.
 
 ---
 
 ## 📌 Overview
 
-This project implements an advanced LLM pipeline that connects LLaMA 3 to a local vector database. By utilizing RAG, the agent bypasses the static knowledge limitations of standard language models, retrieving relevant semantic chunks from custom data before generating accurate, context-aware responses.
+Determining which technical skills yield the highest career return is a complex problem influenced by industry demand, compensation trends, and skill co-occurrence. 
+
+**Skill ROI Forecaster** addresses this challenge by combining multiple statistical learning techniques into a unified decision-support engine. The application predicts compensation bands, identifies natural skill clusters, uncovers hidden skill associations, and quantifies market viability through a custom mathematical ROI formulation.
 
 ---
 
-## 🚀 Architecture & Tech Stack
+## 🚀 Key Features
 
-* **LLM Engine:** LLaMA 3 (via Groq API for high-speed inference)
-* **Orchestration:** LangChain
-* **Vector Database:** ChromaDB (for semantic embedding storage and retrieval)
-* **Backend Framework:** FastAPI (Python)
-* **Frontend Framework:** React.js (JavaScript)
-* **API Communication:** REST endpoints
+* **Multi-Model Machine Learning Architecture:**
+  * **Supervised Regression & Classification:** Leverages Random Forest algorithms to estimate expected compensation percentiles and classify role seniority tiers based on skill combinations.
+  * **Unsupervised Clustering:** Employs K-Means to identify latent clusters of technical skill proficiencies and domain archetypes.
+  * **Association Rule Mining:** Implements the Apriori algorithm to discover frequent itemsets and calculate confidence/lift metrics between complementary technologies.
+* **Interactive Data Visualization:** Real-time exploration of skill matrices, correlation heatmaps, and ROI rankings powered by Streamlit.
 
 ---
 
-## 🏗️ Project Creation & Structure
+## 🧮 Mathematical Formulation
 
-The repository is structured into two isolated environments for the frontend and backend:
+To quantify technical viability fairly, the system balances raw compensation potential with general market liquidity through a normalized weighted metric:
 
-```text
-Digital-Twin/
-│
-├── backend/
-│   ├── main.py
-│   ├── requirements.txt
-│   └── .env
-│
-├── frontend/
-│   ├── src/
-│   ├── package.json
-│   └── public/
-│
-└── README.md
+$$\text{ROI} = 0.6 \times \overline{\text{Salary}} + 0.4 \times \overline{\text{Frequency}}$$
+
+Where:
+* $\overline{\text{Salary}}$ is the min-max normalized median compensation associated with a specific technical skill.
+* $\overline{\text{Frequency}}$ is the min-max normalized market occurrence/demand volume of that skill across collected job postings.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Language:** Python 3.10+
+* **Machine Learning:** Scikit-learn (Random Forest, K-Means), MLxtend (Apriori)
+* **Data Processing:** Pandas, NumPy
+* **Visualization:** Matplotlib, Seaborn
+* **Deployment:** Streamlit
+
+---
+
+## ⚙️ Installation & Local Setup
+
+1. Clone the Repository:
+   ```bash
+   git clone [https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git](https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git)
+   cd Skill-ROI-Forecaster
