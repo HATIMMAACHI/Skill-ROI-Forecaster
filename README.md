@@ -1,8 +1,3 @@
----
-
-### 2. Skill ROI Forecaster (`README.md`)
-
-```markdown
 # 📈 Skill ROI Forecaster
 
 An end-to-end machine learning system that analyzes, predicts, and ranks the market return on investment (ROI) of technical skills across modern tech industries. 
@@ -33,11 +28,11 @@ Determining which technical skills yield the highest career return is a complex 
 
 To quantify technical viability fairly, the system balances raw compensation potential with general market liquidity through a normalized weighted metric:
 
-$$\text{ROI} = 0.6 \times \overline{\text{Salary}} + 0.4 \times \overline{\text{Frequency}}$$
+**ROI = (0.6 * Normalized Salary) + (0.4 * Normalized Frequency)**
 
 Where:
-* $\overline{\text{Salary}}$ is the min-max normalized median compensation associated with a specific technical skill.
-* $\overline{\text{Frequency}}$ is the min-max normalized market occurrence/demand volume of that skill across collected job postings.
+* **Normalized Salary** is the min-max normalized median compensation associated with a specific technical skill.
+* **Normalized Frequency** is the min-max normalized market occurrence/demand volume of that skill across collected job postings.
 
 ---
 
@@ -51,9 +46,47 @@ Where:
 
 ---
 
-## ⚙️ Installation & Local Setup
+## ⚙️ Installation & Setup
 
-1. Clone the Repository:
-   ```bash
-   git clone [https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git](https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git)
-   cd Skill-ROI-Forecaster
+### 1. Clone the Repository
+Clone the project directly to your local machine:
+```bash
+git clone [https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git](https://github.com/HATIMMAACHI/Skill-ROI-Forecaster.git)
+cd Skill-ROI-Forecaster
+```
+
+### 2. Create a Virtual Environment
+Isolate the project dependencies by creating a virtual environment:
+```bash
+# On macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+
+# On Windows
+python -m venv venv
+venv\Scripts\activate
+```
+
+### 3. Install Dependencies
+Install all required machine learning and data processing libraries:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 🏃 Running the Application
+
+Once the dependencies are installed, you can launch the Streamlit dashboard locally by running:
+```bash
+streamlit run app.py
+```
+
+The application will automatically launch in your default web browser at `http://localhost:8501`. Any changes made to the `app.py` script will hot-reload in the browser.
+
+---
+
+## 👤 Author
+* **Hatim Maachi** — MSc Student in Data Science & Intelligent Systems
+* **GitHub:** [@HATIMMAACHI](https://github.com/HATIMMAACHI)
+* **Portfolio:** [maachi.me](https://maachi.me)
